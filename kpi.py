@@ -104,11 +104,15 @@ def compute_kpis(entries: Iterable[dict]) -> dict:
     cash_terms = sum(_num(e.get("cash")) for e in terms_paid)
     cash_total = cash_main + cash_terms
 
-    # Revenue: main rows only — matches /calendar and /meetings
-    revenue = sum(_num(e.get("revenue")) for e in main)
+    # Revenue: only count rows whose deal_type is Deposit / PIF / 2T / 3T.
+    # Matches the meetings page logic (totalRevenue + depositRevenue) and
+    # ignores stray revenue values on No-close / Cancelled / etc rows.
     revenue_excl_deposit = sum(_num(e.get("revenue")) for e in main if e.get("deal_type") in CLOSED_TYPES)
     revenue_deposit = sum(_num(e.get("revenue")) for e in main if e.get("deal_type") == "Deposit")
     revenue_incl_deposit = revenue_excl_deposit + revenue_deposit
+    # `revenue` (default field) = incl. deposit, since /calendar Rev card
+    # treats deposits as closes.
+    revenue = revenue_incl_deposit
 
     aov = (sum(_num(e.get("revenue")) for e in closeish) / len(closeish)) if closeish else 0.0
     cash_per_call = (cash_main / calls_taken) if calls_taken else 0.0

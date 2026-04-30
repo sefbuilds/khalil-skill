@@ -178,8 +178,12 @@ cash_terms = sum(float(e['cash']) for e in paid_terms)
 # What Khalil reads as "Cash collected" on the dashboard mentally:
 cash_total = cash_main + cash_terms
 
-# Revenue: MAIN ROWS ONLY (term children inherit revenue from their parent).
-revenue = sum(float(e['revenue']) for e in main)
+# Revenue: only main rows with a closing deal_type — Deposit, PIF, 2T, 3T.
+# Stray revenue values on No-close / Cancelled / Follow-up rows are ignored.
+revenue_excl_deposit = sum(float(e['revenue']) for e in main if e['deal_type'] in ('PIF','2T','3T'))
+revenue_deposit      = sum(float(e['revenue']) for e in main if e['deal_type'] == 'Deposit')
+revenue_incl_deposit = revenue_excl_deposit + revenue_deposit
+revenue = revenue_incl_deposit  # default — what /calendar Rev card shows
 
 cash_per_call = cash_main / calls_taken if calls_taken else 0
 ```
