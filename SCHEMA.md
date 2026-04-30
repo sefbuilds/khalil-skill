@@ -186,6 +186,14 @@ revenue_incl_deposit = revenue_excl_deposit + revenue_deposit
 revenue = revenue_incl_deposit  # default — what /calendar Rev card shows
 
 cash_per_call = cash_main / calls_taken if calls_taken else 0
+
+# Commission split — matches the /meetings cards:
+#   "Commissie excl. terms"  = commission_main
+#   "Commissies from terms"  = commission_terms
+commission_main  = sum(float(e['commission_payable']) for e in main)
+commission_terms = sum(float(e['commission_payable']) for e in paid_terms)
+commission_total = commission_main + commission_terms
+commission = commission_total  # default — dashboard sum
 ```
 
 > **Cash gotcha:** `/calendar` Cash KPI = `cash_main` only. `/meetings`

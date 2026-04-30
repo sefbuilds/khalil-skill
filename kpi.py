@@ -114,6 +114,12 @@ def compute_kpis(entries: Iterable[dict]) -> dict:
     # treats deposits as closes.
     revenue = revenue_incl_deposit
 
+    # Commission split — matches the /meetings cards "Commissie excl. terms"
+    # and "Commissies from terms".
+    commission_main = sum(_num(e.get("commission_payable")) for e in main)
+    commission_terms = sum(_num(e.get("commission_payable")) for e in terms_paid)
+    commission_total = commission_main + commission_terms
+
     aov = (sum(_num(e.get("revenue")) for e in closeish) / len(closeish)) if closeish else 0.0
     cash_per_call = (cash_main / calls_taken) if calls_taken else 0.0
 
@@ -154,6 +160,11 @@ def compute_kpis(entries: Iterable[dict]) -> dict:
         "revenue": revenue,
         "revenue_incl_deposit": revenue_incl_deposit,
         "revenue_excl_deposit": revenue_excl_deposit,
+        # commission breakdown — matches the /meetings cards
+        "commission_main": commission_main,
+        "commission_terms": commission_terms,
+        "commission_total": commission_total,
+        "commission": commission_total,  # default = dashboard sum
         "aov": aov,
         "cash_per_call": cash_per_call,
         "close_rate_incl": close_rate_incl,
@@ -189,6 +200,7 @@ def kpi_block(k: dict) -> str:
             f"  Terms paid     {fmt_eur(k['cash_terms'])}",
             f"  Cash TOTAL     {fmt_eur(k['cash_total'])}  (main + paid terms — matches /meetings)",
             f"  Revenue        {fmt_eur(k['revenue'])}",
+            f"  Commission     {fmt_eur(k['commission_total'])}  (main {fmt_eur(k['commission_main'])} + terms {fmt_eur(k['commission_terms'])})",
             f"  Close rate     {fmt_pct(k['close_rate_incl'])}  (excl. dep: {fmt_pct(k['close_rate_excl'])})",
             f"  AOV            {fmt_eur(k['aov'])}",
             f"  Cash/Call      {fmt_eur(k['cash_per_call'])}",
