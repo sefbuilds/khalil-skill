@@ -89,4 +89,4 @@ python scripts/upcoming.py 10
 - **Never** write. `client.py` only exposes a read-only client. Don't import the Supabase library directly to bypass it.
 - **Never** print or log the anon key. Reference it via env only.
 - Hidden rows (`hidden=true`) are excluded everywhere — do not undo this filter.
-- If a number you compute disagrees with the app's `/calendar` for the same period, **the app wins.** Re-read [SCHEMA.md](SCHEMA.md) and `lib/kpi.py` to figure out where you went off.
+- If a number you compute disagrees with the app's `/calendar` for the same period, **the app wins.** Re-read [SCHEMA.md](SCHEMA.md) and `lib/kpi.py` to figure out where you went off. 
