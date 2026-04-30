@@ -36,12 +36,15 @@ def main(argv: list[str]) -> int:
     end = f"{month_key}-{last_day:02d}"
 
     sb = read()
+    # Explicit limit: PostgREST defaults to 1000 rows; busy months can exceed
+    # that with all the term children + start-date children + main calls.
     entries = (
         sb.table("entries")
         .select("*")
         .gte("date", start)
         .lte("date", end)
         .eq("hidden", False)
+        .limit(10000)
         .execute()
     ).data or []
 
@@ -56,14 +59,16 @@ def main(argv: list[str]) -> int:
         _common.out_json({"month": month_key, "kpis": k, "goals": goals})
         return 0
 
-    print(f"# {month_key} — month-to-date snapshot")
+    print(f"# {month_key} — month-to-date snapshot ({len(entries)} rows pulled)")
     print()
     print("KPIs")
     print(kpi_block(k))
     print()
     if goals:
-        print("Goal pacing")
-        _line("Cash collected", k["cash"], goals.get("cash_target"), money=True)
+        print("Goal pacing  (cash target compared against TOTAL cash — main + paid terms — to match the /meetings dashboard)")
+        _line("Cash TOTAL", k["cash_total"], goals.get("cash_target"), money=True)
+        _line("  ↳ main only", k["cash_main"], None, money=True)
+        _line("  ↳ paid terms", k["cash_terms"], None, money=True)
         _line("Revenue", k["revenue"], goals.get("revenue_target"), money=True)
         _line("Calls booked", k["booked"], goals.get("calls_booked_target"))
         _line("Calls taken", k["calls_taken"], goals.get("calls_taken_target"))
@@ -80,15 +85,13 @@ def _line(label: str, current, target, money: bool = False, pct: bool = False) -
     target = float(target or 0)
     cur = float(current or 0)
     if money:
-        cur_s, tgt_s = fmt_eur(cur), fmt_eur(target)
+        cur_s, tgt_s = fmt_eur(cur), fmt_eur(target) if target else "—"
     elif pct:
-        cur_s, tgt_s = fmt_pct(cur), fmt_pct(target)
+        cur_s, tgt_s = fmt_pct(cur), fmt_pct(target) if target else "—"
     else:
-        cur_s, tgt_s = f"{int(cur)}", f"{int(target)}"
+        cur_s, tgt_s = f"{int(cur)}", f"{int(target)}" if target else "—"
     pace = (cur / target * 100) if target else 0
-    bar = ""
-    if target:
-        bar = f"  ({pace:.0f}%)"
+    bar = f"  ({pace:.0f}%)" if target else ""
     print(f"  {label:<22} {cur_s:>10} / {tgt_s:>10}{bar}")
 
 

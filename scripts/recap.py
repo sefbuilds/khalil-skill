@@ -75,7 +75,7 @@ def main(argv: list[str]) -> int:
         rows = daily.get(d.isoformat(), [])
         dk = compute_kpis(rows)
         wd = d.strftime("%a")
-        print(f"  {wd} {d}  taken={dk['calls_taken']:<2} closes={dk['closes_incl_deposits']:<2} rev={int(dk['revenue']):>5}  cash={int(dk['cash']):>5}")
+        print(f"  {wd} {d}  taken={dk['calls_taken']:<2} closes={dk['closes_incl_deposits']:<2} rev={int(dk['revenue']):>5}  cash={int(dk["cash_total"]):>5}")
     return 0
 
 

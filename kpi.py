@@ -1,5 +1,9 @@
 """
-KPI calculations — mirror src/lib/kpi.ts and src/app/calendar/page.tsx.
+KPI calculations — mirror the production app exactly.
+
+Two reference files in the app:
+- `src/lib/kpi.ts` (calculateKPIs)
+- `src/app/calendar/page.tsx` (DayKPIs) and `src/app/meetings/page.tsx` (KPI block)
 
 If a number you compute disagrees with the app, the app wins. Re-read this
 file and SCHEMA.md to find the divergence.
@@ -29,21 +33,55 @@ def filter_visible(entries: Iterable[dict]) -> list[dict]:
     return [e for e in entries if not e.get("hidden")]
 
 
+def is_term_deal(deal_type: str | None) -> bool:
+    return (deal_type or "").startswith("Term ")
+
+
 def main_rows(entries: Iterable[dict]) -> list[dict]:
-    """Main entries = no parent_entry_id. Hidden already filtered."""
-    return [e for e in entries if e.get("parent_entry_id") is None]
+    """
+    Match the meetings page mainRows filter exactly:
+      - parent_entry_id IS NULL
+      - deal_type is NOT a term ("Term X/Y")
+      - deal_type is NOT "Start date"
+
+    Hidden rows must already be filtered out.
+    """
+    out = []
+    for e in entries:
+        if e.get("parent_entry_id") is not None:
+            continue
+        dt = e.get("deal_type")
+        if is_term_deal(dt):
+            continue
+        if dt == "Start date":
+            continue
+        out.append(e)
+    return out
+
+
+def paid_term_rows(entries: Iterable[dict]) -> list[dict]:
+    """
+    Term-children rows where the cash has actually been received
+    (`checked_claimed = true`). Hidden rows must already be filtered out.
+    """
+    return [
+        e
+        for e in entries
+        if is_term_deal(e.get("deal_type")) and e.get("checked_claimed") is True
+    ]
 
 
 def compute_kpis(entries: Iterable[dict]) -> dict:
     """
     Returns the same KPI numbers the app shows for the given entries.
-    Pass in a date-range slice of entries (already filtered by date in your
-    SELECT). This function will filter `hidden` and select main rows.
+    Pass in a date-range slice (already filtered by date in your SELECT).
+    This function will filter `hidden` and pick main rows.
     """
     visible = filter_visible(entries)
     main = main_rows(visible)
-    booked = len(main)
+    terms_paid = paid_term_rows(visible)
 
+    booked = len(main)
     cancelled = sum(1 for e in main if e.get("deal_type") == "Cancelled")
     rescheduled = sum(1 for e in main if e.get("deal_type") == "Reschedule")
     no_shows = sum(1 for e in main if e.get("deal_type") == "No show")
@@ -58,24 +96,35 @@ def compute_kpis(entries: Iterable[dict]) -> dict:
 
     closeish = [e for e in main if e.get("deal_type") in CLOSEISH_TYPES]
 
-    # Cash and revenue: MAIN rows only — never term children.
-    cash = sum(_num(e.get("cash")) for e in main)
+    # Cash split — matches the meetings page top-row cards:
+    #   Cash Collected  = cash_main   (main rows only)
+    #   Terms collected = cash_terms  (paid term children)
+    #   Total           = cash_total  (the dashboard sum people read mentally)
+    cash_main = sum(_num(e.get("cash")) for e in main)
+    cash_terms = sum(_num(e.get("cash")) for e in terms_paid)
+    cash_total = cash_main + cash_terms
+
+    # Revenue: main rows only — matches /calendar and /meetings
     revenue = sum(_num(e.get("revenue")) for e in main)
+    revenue_excl_deposit = sum(_num(e.get("revenue")) for e in main if e.get("deal_type") in CLOSED_TYPES)
+    revenue_deposit = sum(_num(e.get("revenue")) for e in main if e.get("deal_type") == "Deposit")
+    revenue_incl_deposit = revenue_excl_deposit + revenue_deposit
 
     aov = (sum(_num(e.get("revenue")) for e in closeish) / len(closeish)) if closeish else 0.0
-    cash_per_call = (cash / calls_taken) if calls_taken else 0.0
+    cash_per_call = (cash_main / calls_taken) if calls_taken else 0.0
 
-    # Close rates
     close_rate_incl = (closes_w_dep / calls_taken * 100) if calls_taken else 0.0
     close_rate_excl = (closes_strict / calls_taken * 100) if calls_taken else 0.0
 
-    # 1-1 share within all PIF/2T/3T closes (matches GoalsProgress card)
-    one_to_one_closes = sum(1 for e in main if e.get("deal_type") in CLOSED_TYPES and e.get("program") == "1-1")
-    one_to_one_upsell_closes = sum(1 for e in main if e.get("deal_type") in CLOSED_TYPES and e.get("program") == "Upsell 1-1")
+    one_to_one_closes = sum(
+        1 for e in main if e.get("deal_type") in CLOSED_TYPES and e.get("program") == "1-1"
+    )
+    one_to_one_upsell_closes = sum(
+        1 for e in main if e.get("deal_type") in CLOSED_TYPES and e.get("program") == "Upsell 1-1"
+    )
     one_to_one_rate = (one_to_one_closes / closes_strict * 100) if closes_strict else 0.0
     one_to_one_upsell_rate = (one_to_one_upsell_closes / closes_strict * 100) if closes_strict else 0.0
 
-    # Negatives
     negatives = no_shows + cancelled + rescheduled
     neg_per_taken = (negatives / calls_taken * 100) if calls_taken else 0.0
     neg_per_booked = (negatives / booked * 100) if booked else 0.0
@@ -90,8 +139,16 @@ def compute_kpis(entries: Iterable[dict]) -> dict:
         "closes_strict": closes_strict,
         "deposits": deposits,
         "closes_incl_deposits": closes_w_dep,
-        "cash": cash,
+        # cash breakdown matches the /meetings page
+        "cash_main": cash_main,
+        "cash_terms": cash_terms,
+        "cash_total": cash_total,
+        # backwards-compat alias for code that read `cash`
+        "cash": cash_main,
+        # revenue
         "revenue": revenue,
+        "revenue_incl_deposit": revenue_incl_deposit,
+        "revenue_excl_deposit": revenue_excl_deposit,
         "aov": aov,
         "cash_per_call": cash_per_call,
         "close_rate_incl": close_rate_incl,
@@ -123,7 +180,9 @@ def kpi_block(k: dict) -> str:
             f"  Calls taken    {k['calls_taken']}",
             f"  Closes (incl.) {k['closes_incl_deposits']}  (PIF+2T+3T+Dep)",
             f"  Negatives      {k['negatives']}  (NS {k['no_shows']} / CX {k['cancelled']} / RS {k['rescheduled']})",
-            f"  Cash           {fmt_eur(k['cash'])}",
+            f"  Cash (main)    {fmt_eur(k['cash_main'])}",
+            f"  Terms paid     {fmt_eur(k['cash_terms'])}",
+            f"  Cash TOTAL     {fmt_eur(k['cash_total'])}  (main + paid terms — matches /meetings)",
             f"  Revenue        {fmt_eur(k['revenue'])}",
             f"  Close rate     {fmt_pct(k['close_rate_incl'])}  (excl. dep: {fmt_pct(k['close_rate_excl'])})",
             f"  AOV            {fmt_eur(k['aov'])}",

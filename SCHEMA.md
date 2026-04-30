@@ -131,7 +131,23 @@ daily_notes    one row per yyyy-MM-dd date
 These must match exactly or KS-9's numbers will disagree with the app.
 
 ```python
-main = [e for e in entries if not e['parent_entry_id'] and not e['hidden']]
+visible = [e for e in entries if not e['hidden']]
+
+# Strict main filter — matches the meetings page mainRows filter:
+#   parent_entry_id IS NULL
+#   AND deal_type NOT LIKE 'Term %'
+#   AND deal_type != 'Start date'
+def _is_main(e):
+    if e.get('parent_entry_id') is not None:
+        return False
+    dt = e.get('deal_type') or ''
+    if dt.startswith('Term '):
+        return False
+    if dt == 'Start date':
+        return False
+    return True
+
+main = [e for e in visible if _is_main(e)]
 booked = len(main)
 cancelled  = sum(1 for e in main if e['deal_type'] == 'Cancelled')
 rescheduled = sum(1 for e in main if e['deal_type'] == 'Reschedule')
@@ -150,11 +166,30 @@ close_rate_excl = closes_strict / calls_taken if calls_taken else 0
 closeish = [e for e in main if e['deal_type'] in ('PIF','2T','3T','Deposit')]
 aov = (sum(float(e['revenue']) for e in closeish) / len(closeish)) if closeish else 0
 
-# Cash and revenue: MAIN ROWS ONLY. Never include term-children cash here.
-cash    = sum(float(e['cash'])    for e in main)
+# Cash split — matches the /meetings page top-row cards exactly:
+cash_main = sum(float(e['cash']) for e in main)
+
+# Paid term children — `checked_claimed = true` means cash already received.
+paid_terms = [e for e in visible
+              if (e.get('deal_type') or '').startswith('Term ')
+              and e.get('checked_claimed') is True]
+cash_terms = sum(float(e['cash']) for e in paid_terms)
+
+# What Khalil reads as "Cash collected" on the dashboard mentally:
+cash_total = cash_main + cash_terms
+
+# Revenue: MAIN ROWS ONLY (term children inherit revenue from their parent).
 revenue = sum(float(e['revenue']) for e in main)
-cash_per_call = cash / calls_taken if calls_taken else 0
+
+cash_per_call = cash_main / calls_taken if calls_taken else 0
 ```
+
+> **Cash gotcha:** `/calendar` Cash KPI = `cash_main` only. `/meetings`
+> shows `cash_main` and `cash_terms` as two separate cards — the
+> "dashboard total" people read mentally is `cash_total`. KS-9's
+> `kpi.py` returns all three (`cash_main`, `cash_terms`, `cash_total`).
+> Pick the right one per context. Use `cash_total` for monthly pacing
+> against the goal target Khalil set.
 
 ### Negatives
 
@@ -214,10 +249,16 @@ res = sb.table("entries").select("*") \
 
 If your computed KPI doesn't match the app:
 
-1. Did you filter `hidden = false`?
-2. Did you exclude term-children (`parent_entry_id is null`) where required?
-3. For close rate: did you use `qualifiedTaken = booked − cancelled − reschedule − noshow − unqualified` as the denominator?
-4. For AOV: did you use closeish (incl. Deposit) for both numerator and denominator?
-5. For Cash: did you only sum main rows (no term children)?
+1. **`hidden`** — did you filter `hidden = false`?
+2. **Strict main filter** — did you exclude `parent_entry_id IS NOT NULL`, **AND** `deal_type LIKE 'Term %'`, **AND** `deal_type = 'Start date'`? Just filtering on `parent_entry_id` is not enough — orphans exist.
+3. **Pagination** — PostgREST defaults to **1000 rows**. For wider ranges add `.limit(10000)` or higher.
+4. **Calls taken denominator** — did you subtract Unqualified along with cancelled/reschedule/no-show?
+5. **Close rate** — did you use `(PIF+2T+3T+Deposit) / calls_taken` for the "incl. deposit" version?
+6. **AOV** — closeish (incl. Deposit) for both numerator (sum revenue) and denominator (count)?
+7. **Cash** — which one are you comparing?
+   - `cash_main` matches `/calendar` Cash and `/meetings` "Cash Collected" card.
+   - `cash_terms` matches `/meetings` "Terms collected" card.
+   - `cash_total` is what people read off the dashboard mentally (the two cards summed).
+8. **Revenue** — main rows only. Never sum term-children revenue (they inherit it from the parent).
 
-The app is the source of truth. `lib/kpi.py` mirrors it line-for-line.
+The app is the source of truth. `kpi.py` mirrors it line-for-line.
