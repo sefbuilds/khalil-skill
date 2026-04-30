@@ -147,8 +147,9 @@ def compute_kpis(entries: Iterable[dict]) -> dict:
         "cash_main": cash_main,
         "cash_terms": cash_terms,
         "cash_total": cash_total,
-        # backwards-compat alias for code that read `cash`
-        "cash": cash_main,
+        # `cash` is the dashboard sum: main rows + paid term children.
+        # That's what Khalil reads off /meetings as "cash collected".
+        "cash": cash_total,
         # revenue
         "revenue": revenue,
         "revenue_incl_deposit": revenue_incl_deposit,
